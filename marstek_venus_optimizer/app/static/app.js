@@ -310,6 +310,7 @@ document.getElementById('config-form').addEventListener('submit', async (e) => {
     const [sec, key] = el.name.split('.');
     let val = el.value;
     if (el.type === 'number') {
+      if (typeof val === 'string') val = val.replace(',', '.');
       val = val === '' ? null : parseFloat(val);
     }
     payload[sec][key] = val;
