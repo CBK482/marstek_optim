@@ -216,4 +216,24 @@ async def test_house_load_calculation_does_not_double_count_battery(ctl):
     assert abs(ctl.live["house_w"] - 800.0) < 50.0
 
 
+@pytest.mark.asyncio
+async def test_average_demand_triggers_automatic_peak_shaving(ctl):
+    ctl.cfg.control.mode = "force_charge"
+    ctl.cfg.control.peak_shaving = True
+    ctl.cfg.tariff.peak_limit_w = 2500
+    ctl.cfg.control.peak_margin_w = 150  # limit = 2350 W
+    ctl.ha.soc = 50
+
+    # Simulate P1 average demand reaching 2400 W (which exceeds limit 2350 W)
+    ctl.ha.quarter_energy = 2400.0 * 0.25
+    ctl.ha.quarter_covered = 0.25
+    ctl.ha.avg_demand = 2400.0
+    await ctl.watchdog()
+
+    # Must immediately switch to Automatic to shave peak and protect capacity tariff
+    assert ctl.effective.kind == "discharge_auto"
+    assert ctl.flags["shaving"] is True
+    assert "15-min average demand 2400 W reached limit 2350 W" in ctl.reason
+
+
 

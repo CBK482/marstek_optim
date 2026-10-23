@@ -395,18 +395,23 @@ class Controller:
                         # At target and within allowed limits
                         cmd = Command("charge", target_p)
 
-            # Shave a live peak by discharging (Auto CT follows the house load)
+            # Shave a live peak by discharging (Auto CT / Automatic follows the house load)
             can_dis = soc is None or soc > b.min_soc_pct + 1
             in_shave = self._shave_quarter == price_mod.floor_slot(now)
-            # While shaving in Auto CT without a battery power sensor the house
+            # While shaving in Automatic without a battery power sensor the house
             # load is unobservable (P1 ≈ 0) -> hold the shave until quarter end.
             keep = in_shave and (batt_ch is None or house > allowed - 2 * c.peak_margin_w)
+            avg_exceeded = (avg is not None and avg >= limit)
             if (c.peak_shaving and can_dis and cmd.kind in ("idle", "charge") and self.mode != "hold"
-                    and (house > allowed or keep)):
+                    and (house > allowed or avg_exceeded or keep)):
                 self._shave_quarter = price_mod.floor_slot(now)
                 self.flags["shaving"] = True
-                reason = (f"Peak shaving: house load {house:.0f} W exceeds allowed import {allowed:.0f} W "
-                          f"for this quarter (target {self.peak_target_w:.0f} W)")
+                if avg_exceeded:
+                    reason = (f"Peak shaving: 15-min average demand {avg:.0f} W reached limit {limit:.0f} W "
+                              f"(target {self.peak_target_w:.0f} W) → switched to Automatic")
+                else:
+                    reason = (f"Peak shaving: house load {house:.0f} W exceeds allowed import {allowed:.0f} W "
+                              f"for this quarter (target {self.peak_target_w:.0f} W)")
                 cmd = Command("discharge_auto")
 
         if self.flags["safety"]:
