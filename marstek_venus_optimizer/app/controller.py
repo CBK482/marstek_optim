@@ -206,6 +206,21 @@ class Controller:
             return
         try:
             p1 = await self.ha.get_history(self.cfg.entities.p1_power, since)
+            if self.cfg.entities.battery_power:
+                try:
+                    batt = await self.ha.get_history(self.cfg.entities.battery_power, since)
+                    b_dict = {t.replace(second=0, microsecond=0): v for t, v in batt}
+                    combined = []
+                    for t, p1_v in p1:
+                        key = t.replace(second=0, microsecond=0)
+                        b_v = b_dict.get(key, 0.0)
+                        batt_ch = -b_v if self.cfg.battery.battery_power_positive == "discharge" else b_v
+                        combined.append((t, max(0.0, p1_v - batt_ch)))
+                    self._history = combined
+                    self.log(f"Bootstrapped load forecast from {len(combined)} P1 + battery history points")
+                    return
+                except Exception as b_err:  # noqa: BLE001
+                    _LOGGER.debug("Battery history fetch failed: %s", b_err)
             self._history = p1
             self.log(f"Bootstrapped load forecast from {len(p1)} P1 history points")
         except Exception as err:  # noqa: BLE001

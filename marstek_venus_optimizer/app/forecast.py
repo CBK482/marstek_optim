@@ -57,6 +57,11 @@ def forecast_load(slot_starts: Sequence[datetime], samples: Sequence[tuple[datet
         we = 1 if loc.weekday() >= 5 else 0
         if prof_w[we, idx] >= 1.5:  # enough same-type-day data
             val = prof_sum[we, idx] / prof_w[we, idx]
+            # If historical grid import was artificially suppressed near 0 W
+            # (e.g. by previous battery self-consumption or solar), do not assume
+            # the home consumes 0 W. Fall back to at least baseline load and profile.
+            if val < base_w * 0.5:
+                val = max(val, fallback[idx] * 0.8, base_w)
         else:
             val = combined[idx]
         if current_w is not None:

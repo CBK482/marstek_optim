@@ -1,5 +1,5 @@
 name: Marstek Venus Battery Optimizer
-version: "1.0.7"
+version: "1.0.8"
 slug: marstek_venus_optimizer
 description: >-
   LP/MILP optimizer for Marstek Venus (HAME) batteries using Nord Pool

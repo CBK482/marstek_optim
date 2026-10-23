@@ -194,3 +194,24 @@ def test_parse_energy_charts():
     out = parse_energy_charts({"unix_seconds": [base, base + 900], "price": [80.0, 120.0], "unit": "EUR / MWh"})
     assert out[T0] == pytest.approx(0.08)
     assert out[T0 + timedelta(minutes=15)] == pytest.approx(0.12)
+
+
+def test_forecast_load_applies_fallback_floor_when_history_suppressed():
+    from app.forecast import forecast_load
+    # 2 weeks of history where 18:00–20:00 (slots 72-80) were zeroed out by prior battery discharge
+    slots = [T0 + timedelta(minutes=15 * i) for i in range(96)]
+    samples = []
+    for day in range(1, 15):
+        d_start = T0 - timedelta(days=day)
+        for i in range(96):
+            t = d_start + timedelta(minutes=15 * i)
+            # 18:00-20:00 zeroed out, rest 300 W
+            val = 0.0 if 72 <= i < 80 else 300.0
+            samples.append((t, val))
+
+    preds = forecast_load(slots, samples, timezone.utc, base_w=300.0)
+    # Slots 72-80 should NOT be 0 W; floor fallback should kick in (fallback profile peak is ~1000-1100W * 0.8)
+    for i in range(72, 80):
+        assert preds[i] >= 300.0, f"Slot {i} was {preds[i]}W, expected at least baseline 300W"
+
+
