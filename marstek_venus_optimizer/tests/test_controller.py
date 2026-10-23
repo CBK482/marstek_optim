@@ -155,3 +155,65 @@ async def test_discharge_auto_switches_to_automatic(ctl):
     assert ctl.ha.values[f"switch.{B}_time_period_1_enabled"] == "off"
 
 
+@pytest.mark.asyncio
+async def test_soft_start_and_step_up_regulation(ctl):
+    ctl.cfg.control.mode = "force_charge"
+    ctl.cfg.battery.max_charge_w = 2500
+    ctl.cfg.tariff.peak_limit_w = 2800
+    ctl.cfg.control.peak_margin_w = 100  # allowed = 2700 W
+    ctl.cfg.entities.p1_avg_demand = ""  # instantaneous limit = 2700 W
+    ctl.ha.soc = 50
+    ctl.ha.house_load = lambda ts: 400.0
+
+    await ctl.watchdog()
+
+    # Initial charge command starts at 50% of 2500 W = 1250 W
+    assert ctl.effective.kind == "charge"
+    assert ctl.effective.power_w == 1250
+    assert ctl.flags["throttled"]
+    assert "Soft-start charge (50%)" in ctl.reason
+
+    # Apply the 1250 W command
+    await ctl.apply(ctl.effective, ctl.reason)
+    assert ctl.applied.power_w == 1250
+
+    # P1 meter reflects: 400 W house + 1250 W battery = 1650 W
+    await ctl.watchdog()
+
+    # Allowed = 2700 W. Headroom = 2700 - 1650 = 1050 W.
+    # Step up by min(1050 * 0.5, 300, 2500 - 1250) = 300 W -> 1250 + 300 = 1550 W.
+    assert ctl.effective.kind == "charge"
+    assert ctl.effective.power_w == 1550
+    assert "Step-up charge: 1250→1550 W" in ctl.reason
+
+    # Assume 1550 W was applied
+    await ctl.apply(ctl.effective, ctl.reason)
+
+    # Now simulate an appliance turning on: house jumps to 1450 W
+    # Total P1 will be 1450 + 1550 = 3000 W (overshoot = 300 W above allowed 2700 W)
+    ctl.ha.house_load = lambda ts: 1450.0
+    await ctl.watchdog()
+
+    # Overshoot = 3000 - 2700 = 300 W. Cut = 300 + 50 = 350 W.
+    # New power = 1550 - 350 = 1200 W.
+    assert ctl.effective.kind == "charge"
+    assert ctl.effective.power_w == 1200
+    assert "reduce 1550→1200 W" in ctl.reason
+
+
+@pytest.mark.asyncio
+async def test_house_load_calculation_does_not_double_count_battery(ctl):
+    ctl.ha.house_load = lambda ts: 800.0
+    ctl.ha.values[f"number.{B}_time_period_0_power"] = -2060.0
+    ctl.ha.values[f"switch.{B}_time_period_0_enabled"] = "on"
+    ctl.ha.values[f"switch.{B}_time_period_1_enabled"] = "off"
+    ctl.ha.values[f"select.{B}_working_mode"] = "Manual"
+
+    await ctl.refresh_live()
+    # P1 is ~2860 W, battery is charging at 2060 W.
+    # House load MUST be ~800 W, NOT 2860 + 2060 = 4920 W!
+    assert ctl.live["batt_charge_w"] == 2060.0
+    assert abs(ctl.live["house_w"] - 800.0) < 50.0
+
+
+

@@ -71,6 +71,9 @@ class Controller:
         self._states: dict[str, dict] = {}
         self.cmd_delay_s: float = 1.2
         self.verify_delay_s: float = 3.5
+        self._last_p1_updated: Optional[str] = None
+        self._p1_fresh: bool = True
+        self._last_apply_ts: Optional[datetime] = None
 
     # ------------------------------------------------------------------ logging
     def log(self, msg: str, level: str = "info") -> None:
@@ -124,6 +127,15 @@ class Controller:
         tp0_on, tp1_on = raw(e.tp0_enabled), raw(e.tp1_enabled)
         tp0_p, tp1_p = val(e.tp0_power), val(e.tp1_power)
 
+        p1_st = self._states.get(e.p1_power) if e.p1_power else None
+        p1_updated = p1_st.get("last_updated") if p1_st else None
+        if p1_updated and self._last_p1_updated:
+            self._p1_fresh = (p1_updated != self._last_p1_updated)
+        else:
+            self._p1_fresh = True
+        if p1_updated:
+            self._last_p1_updated = p1_updated
+
         # battery AC power, + = charging (grid side)
         if batt_raw is not None:
             batt_ch = -batt_raw if self.cfg.battery.battery_power_positive == "discharge" else batt_raw
@@ -134,7 +146,8 @@ class Controller:
                 batt_ch = 0.0
         else:
             batt_ch = None  # Auto/CT: unknown without a power sensor
-        house = p1 + batt_ch if (p1 is not None and batt_ch is not None) else None
+        # House load: grid import P1 = house + batt_charge => house = P1 - batt_charge
+        house = max(0.0, p1 - batt_ch) if (p1 is not None and batt_ch is not None) else (max(0.0, p1) if p1 is not None else None)
 
         # own running quarter-hour average of grid import
         q = price_mod.floor_slot(now)
@@ -331,13 +344,56 @@ class Controller:
             self.live["allowed_import_w"] = round(allowed)
 
             if cmd.kind == "charge":
-                max_ch = max(0.0, allowed - house)
-                if max_ch < cmd.power_w:
-                    new_p = math.floor(max_ch / 10) * 10
-                    self.flags["throttled"] = True
-                    reason = (f"Kwartierpiek throttle: charge {cmd.power_w:.0f}→{new_p:.0f} W "
-                              f"(house {house:.0f} W, allowed import {allowed:.0f} W, target {self.peak_target_w:.0f} W)")
+                target_p = cmd.power_w
+                current_p = self.applied.power_w if (self.applied and self.applied.kind == "charge") else 0.0
+                can_step = self._p1_fresh or (self._last_apply_ts is None or (now - self._last_apply_ts).total_seconds() >= 20.0)
+
+                # Case 1: Initial transition into charge from zero / non-charge
+                # Start at 50% of target to avoid initial overshoot from transport delay
+                if current_p <= 0.0:
+                    ramp_p = math.floor((target_p * 0.5) / 10) * 10
+                    if house is not None:
+                        ramp_p = min(ramp_p, max(0.0, allowed - house))
+                    new_p = max(0.0, ramp_p)
+                    self.flags["throttled"] = (new_p < target_p)
+                    reason = (f"Soft-start charge (50%): {new_p:.0f} W (target {target_p:.0f} W, "
+                              f"P1 {p1:.0f} W, allowed {allowed:.0f} W)")
                     cmd = Command("charge", new_p)
+
+                # Case 2: Already charging -> closed-loop regulation
+                else:
+                    if p1 > allowed:
+                        # Immediate back-off proportional to overshoot + buffer (prevents wild overcompensation)
+                        overshoot = p1 - allowed
+                        cut_w = math.ceil((overshoot + 50.0) / 10) * 10
+                        new_p = max(0.0, current_p - cut_w)
+                        self.flags["throttled"] = True
+                        reason = (f"Kwartierpiek throttle: P1 {p1:.0f} W > allowed {allowed:.0f} W "
+                                  f"(overshoot {overshoot:.0f} W) → reduce {current_p:.0f}→{new_p:.0f} W")
+                        cmd = Command("charge", new_p)
+                    elif current_p < target_p:
+                        # Headroom exists: step up only when fresh P1 data arrives or settles
+                        headroom = max(0.0, allowed - p1)
+                        if can_step and headroom > 100.0:
+                            # Step up smoothly by at most 50% of headroom (capped at 300 W per step)
+                            step_w = min(headroom * 0.5, 300.0, target_p - current_p)
+                            step_w = math.floor(step_w / 10) * 10
+                            if step_w >= 50.0:
+                                new_p = min(target_p, current_p + step_w)
+                                self.flags["throttled"] = (new_p < target_p)
+                                reason = (f"Step-up charge: {current_p:.0f}→{new_p:.0f} W "
+                                          f"(P1 {p1:.0f} W, headroom {headroom:.0f} W, target {target_p:.0f} W)")
+                                cmd = Command("charge", new_p)
+                            else:
+                                cmd = Command("charge", current_p)
+                                self.flags["throttled"] = (current_p < target_p)
+                        else:
+                            # Hold steady while waiting for P1 meter or if headroom is small
+                            cmd = Command("charge", current_p)
+                            self.flags["throttled"] = (current_p < target_p)
+                    else:
+                        # At target and within allowed limits
+                        cmd = Command("charge", target_p)
 
             # Shave a live peak by discharging (Auto CT follows the house load)
             can_dis = soc is None or soc > b.min_soc_pct + 1
@@ -554,7 +610,11 @@ class Controller:
                 self.store.add_action(self.mode, cmd.kind, cmd.power_w, "shadow" if dry else "ha", dry, reason)
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug("action store failed: %s", err)
-            self.applied = cmd if ok else None
+            if ok:
+                self.applied = cmd
+                self._last_apply_ts = datetime.now(timezone.utc)
+            else:
+                self.applied = None
 
     # ------------------------------------------------------------------ status
     def status(self) -> dict:
