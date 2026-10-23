@@ -74,6 +74,7 @@ class Controller:
         self._last_p1_updated: Optional[str] = None
         self._p1_fresh: bool = True
         self._last_apply_ts: Optional[datetime] = None
+        self._last_is_away: Optional[bool] = None
 
     # ------------------------------------------------------------------ logging
     def log(self, msg: str, level: str = "info") -> None:
@@ -175,6 +176,13 @@ class Controller:
         month_peak = max(x for x in (sensor_peak, stored_peak, 0.0) if x is not None)
         self.peak_target_w = max(self.cfg.tariff.peak_limit_w, month_peak)
 
+        presence_raw = raw(e.presence)
+        is_away = False
+        if presence_raw is not None:
+            is_away = str(presence_raw).strip().lower() in (
+                "away", "not_home", "off", "false", "absent", "vacation"
+            )
+
         cap_wh = val(e.capacity_wh)
         self.live = {
             "connected": self.ha.connected,
@@ -186,6 +194,8 @@ class Controller:
             "own_avg_w": own_avg,
             "batt_charge_w": batt_ch,
             "house_w": house,
+            "presence": presence_raw,
+            "is_away": is_away,
             "month_peak_w": month_peak,
             "peak_target_w": self.peak_target_w,
             "working_mode": mode_state,
@@ -194,6 +204,12 @@ class Controller:
             "quarter_fraction": min(1.0, (now - q) / SLOT),
         }
         self.last_error = "" if self.ha.connected else self.ha.last_error
+
+        if self._last_is_away is not None and self._last_is_away != is_away:
+            self.log(f"Presence changed to {'Away' if is_away else 'Home'} — triggering re-optimization")
+            asyncio.create_task(self.run_optimization(apply=True))
+        self._last_is_away = is_away
+
         try:
             self.store.add_sample(now, soc, p1, avg, batt_ch, house, self.effective.kind if self.effective else "")
         except Exception as err:  # noqa: BLE001
@@ -257,8 +273,15 @@ class Controller:
             imp = price_mod.import_price(spot, cfg.tariff)
             exp = price_mod.export_price(spot, cfg.tariff)
             samples = self._history + self.store.house_samples(now - timedelta(days=14))
-            load = forecast_load(slots, samples, self.ha.tz, cfg.control.base_load_w, self.live.get("house_w"))
+            load = forecast_load(
+                slots, samples, self.ha.tz,
+                base_w=cfg.control.base_load_w,
+                current_w=self.live.get("house_w"),
+                is_away=bool(self.live.get("is_away", False)),
+                away_load_w=cfg.control.away_load_w,
+            )
             soc = self.live.get("soc")
+
             if soc is None:
                 soc = (cfg.battery.min_soc_pct + cfg.battery.max_soc_pct) / 2
                 self.log("SoC unavailable – optimizing with mid-range SoC", "warning")

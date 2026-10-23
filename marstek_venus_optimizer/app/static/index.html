@@ -20,8 +20,9 @@
           </svg>
         </div>
         <div class="brand-title">
-          <h1>Venus Battery Optimizer <span id="conn-badge" class="badge">Connecting...</span></h1>
+          <h1>Venus Battery Optimizer <span id="conn-badge" class="badge">Connecting...</span> <span id="presence-badge" class="badge" style="display: none;">🏠 Home</span></h1>
         </div>
+
       </div>
 
       <div class="header-controls">
@@ -186,7 +187,15 @@
               <input type="text" id="cfg-price" name="entities.price">
               <div class="field-preview" id="prev-price">Live: --</div>
             </div>
+
+            <div class="field-row">
+              <label for="cfg-presence">Presence Entity (Home / Away)</label>
+              <input type="text" id="cfg-presence" name="entities.presence" placeholder="input_select.presence">
+              <div class="field-preview" id="prev-presence">Live: --</div>
+              <div class="field-help">Entity indicating occupancy (e.g. input_select.presence). Switches to Away standby profile when absent.</div>
+            </div>
           </div>
+
 
           <!-- Battery Technical Specs -->
           <div class="form-section">
@@ -297,7 +306,25 @@
               <input type="number" id="cfg-cap-cost" name="tariff.capacity_tariff_eur_kw_year" step="any">
             </div>
           </div>
+
+          <!-- Load Forecast & Presence Profiles -->
+          <div class="form-section">
+            <div class="section-heading">Load Forecast & Presence Profiles</div>
+
+            <div class="field-row">
+              <label for="cfg-base-load">Home Baseline Load (W)</label>
+              <input type="number" id="cfg-base-load" name="control.base_load_w" step="10">
+              <div class="field-help">Baseline continuous standby load when Home (default 350 W)</div>
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-away-load">Away Standby Load (W)</label>
+              <input type="number" id="cfg-away-load" name="control.away_load_w" step="10">
+              <div class="field-help">Continuous flat standby load when Away (no cooking/living peaks, default 120 W)</div>
+            </div>
+          </div>
         </div>
+
 
         <div style="margin-top: 24px; display: flex; gap: 12px; align-items: center;">
           <button type="submit" class="btn" style="padding: 10px 22px;">

@@ -34,7 +34,9 @@ async def test_discovery_finds_defaults():
     assert s["p1_power"] == "sensor.p1_meter_5c2faf013360_power"
     assert s["p1_avg_demand"] == "sensor.p1_meter_5c2faf013360_average_demand"
     assert s["price"] == "sensor.nord_pool_be_current_price"
+    assert s["presence"] == "input_select.presence"
     assert d["batteries"][0]["complete"]
+
 
 
 @pytest.mark.asyncio
@@ -234,6 +236,42 @@ async def test_average_demand_triggers_automatic_peak_shaving(ctl):
     assert ctl.effective.kind == "discharge_auto"
     assert ctl.flags["shaving"] is True
     assert "15-min average demand 2400 W reached limit 2350 W" in ctl.reason
+
+
+@pytest.mark.asyncio
+async def test_presence_away_switches_to_away_load_profile(ctl):
+    ctl.cfg.entities.presence = "input_select.presence"
+    ctl.cfg.control.away_load_w = 120.0
+    ctl.ha.values["input_select.presence"] = "Away"
+
+    await ctl.refresh_live()
+    assert ctl.live["presence"] == "Away"
+    assert ctl.live["is_away"] is True
+
+    res = await ctl.run_optimization()
+    assert res.ok
+    # Slots should have load ~120 W (within blending range of first hour or two)
+    for s in res.slots[16:]:  # after initial blending
+        assert s.load_w == pytest.approx(120.0, abs=1.0)
+
+
+
+@pytest.mark.asyncio
+async def test_presence_home_uses_standard_profile(ctl):
+    ctl.cfg.entities.presence = "input_select.presence"
+    ctl.cfg.control.base_load_w = 350.0
+    ctl.ha.values["input_select.presence"] = "Home"
+
+    await ctl.refresh_live()
+    assert ctl.live["presence"] == "Home"
+    assert ctl.live["is_away"] is False
+
+    res = await ctl.run_optimization()
+    assert res.ok
+    # At least some evening/day slots should be significantly higher than 120 W
+    loads = [s.load_w for s in res.slots]
+    assert max(loads) >= 700.0
+
 
 
 

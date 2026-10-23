@@ -22,6 +22,7 @@ P1_POWER = re.compile(r"^sensor\.([a-z0-9_]*p1_meter[a-z0-9_]*?)_power$")
 P1_AVG = re.compile(r"^sensor\.[a-z0-9_]*p1_meter[a-z0-9_]*_average_demand$")
 P1_PEAK = re.compile(r"^sensor\.[a-z0-9_]*p1_meter[a-z0-9_]*peak_demand_current_month$")
 PRICE = re.compile(r"^sensor\.(nord_pool_be[a-z0-9_]*|nordpool[a-z0-9_]*|entsoe[a-z0-9_]*)$")
+PRESENCE = re.compile(r"^(?:input_select|binary_sensor|input_boolean|person)\.([a-z0-9_]*(?:presence|occupancy|away|holiday|vacation)[a-z0-9_]*)$")
 
 ROLE_DOMAINS = {
     **{k: v[0] for k, v in BATTERY_ROLES.items()},
@@ -29,6 +30,7 @@ ROLE_DOMAINS = {
     "p1_avg_demand": "sensor",
     "p1_month_peak": "sensor",
     "price": "sensor",
+    "presence": "input_select",
 }
 ROLE_HINTS = {
     "soc": r"state_of_charge|soc",
@@ -43,7 +45,9 @@ ROLE_HINTS = {
     "p1_avg_demand": r"average_demand|demand",
     "p1_month_peak": r"peak",
     "price": r"nord_?pool|price|entsoe",
+    "presence": r"presence|occupancy|away|vacation",
 }
+
 
 
 def _brief(st: dict) -> dict[str, Any]:
@@ -131,6 +135,10 @@ def discover(states: list[dict]) -> dict[str, Any]:
         suggestion.update({k: v for k, v in meters[0]["entities"].items() if v})
     if prices:
         suggestion["price"] = prices[0]
+    pres = sorted(e for e in ids if PRESENCE.match(e))
+    if pres:
+        suggestion["presence"] = pres[0]
 
     return {"batteries": batteries, "meters": meters, "prices": prices,
+
             "candidates": candidates, "suggestion": suggestion}

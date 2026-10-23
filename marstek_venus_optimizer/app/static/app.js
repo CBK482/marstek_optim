@@ -84,6 +84,24 @@ async function refreshStatus() {
 
     // Live KPIs
     const live = data.live || {};
+    const presBadge = document.getElementById('presence-badge');
+    if (presBadge) {
+      if (live.presence != null) {
+        presBadge.style.display = 'inline-block';
+        if (live.is_away) {
+          presBadge.textContent = '✈️ Away';
+          presBadge.style.background = 'rgba(168, 85, 247, 0.2)';
+          presBadge.style.color = '#c084fc';
+        } else {
+          presBadge.textContent = '🏠 Home';
+          presBadge.style.background = 'rgba(56, 189, 248, 0.2)';
+          presBadge.style.color = '#38bdf8';
+        }
+      } else {
+        presBadge.style.display = 'none';
+      }
+    }
+
     if (live.soc != null) {
       document.getElementById('kpi-soc').textContent = Math.round(live.soc);
       const wh = live.soc_wh != null ? Math.round(live.soc_wh) : Math.round(live.soc * 51.2);
@@ -380,7 +398,7 @@ document.getElementById('btn-discover').addEventListener('click', async () => {
 async function updateEntityPreviews(entities) {
   const ids = [
     entities.soc, entities.working_mode,
-    entities.p1_power, entities.p1_avg_demand, entities.price
+    entities.p1_power, entities.p1_avg_demand, entities.price, entities.presence
   ].filter(Boolean).join(',');
 
   if (!ids) return;
@@ -405,7 +423,9 @@ async function updateEntityPreviews(entities) {
     setPrev(entities.p1_power, 'prev-p1-power');
     setPrev(entities.p1_avg_demand, 'prev-p1-avg');
     setPrev(entities.price, 'prev-price');
+    setPrev(entities.presence, 'prev-presence');
   } catch (err) {
+
     console.error('Preview error', err);
   }
 }

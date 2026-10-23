@@ -155,8 +155,10 @@ class MockHA:
             f"switch.{self.BAT}_time_period_1_enabled": "on",
             f"number.{self.BAT}_time_period_0_power": -1500.0,
             f"number.{self.BAT}_time_period_1_power": 0.0,
+            "input_select.presence": "Home",
         }
         self._rng = random.Random(42)
+
 
     async def start(self) -> None:
         return None
@@ -256,6 +258,7 @@ class MockHA:
                      raw_today=self._raw_prices(0), raw_tomorrow=self._raw_prices(1) if tomorrow_valid else [],
                      tomorrow_valid=tomorrow_valid),
             self._st("sensor.living_room_temperature", 20.5, "Living room temperature", "°C"),
+            self._st("input_select.presence", self.values.get("input_select.presence", "Home"), "Presence", options=["Home", "Away"]),
         ]
         return sts
 
@@ -270,9 +273,10 @@ class MockHA:
         eid = data.get("entity_id")
         self.calls.append({"ts": datetime.now(timezone.utc).isoformat(), "service": f"{domain}.{service}", **data})
         self.calls = self.calls[-200:]
-        if domain == "select" and service == "select_option":
+        if domain in ("select", "input_select") and service == "select_option":
             self.values[eid] = data["option"]
         elif domain == "switch":
+
             self.values[eid] = "on" if service == "turn_on" else "off"
             if service == "turn_on" and "time_period" in (eid or ""):
                 self.values[f"select.{self.BAT}_working_mode"] = "Manual"

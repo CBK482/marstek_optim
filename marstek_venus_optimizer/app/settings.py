@@ -52,6 +52,7 @@ class EntityConfig(BaseModel):
     p1_avg_demand: str = f"sensor.{DEFAULT_P1}_average_demand"
     p1_month_peak: str = f"sensor.{DEFAULT_P1}_peak_demand_current_month"
     price: str = "sensor.nord_pool_be_current_price"
+    presence: str = "input_select.presence"
 
 
 class BatteryConfig(BaseModel):
@@ -104,6 +105,8 @@ class ControlConfig(BaseModel):
     terminal_value_percentile: float = Field(30, ge=0, le=100)
     terminal_value_eur_kwh: Optional[float] = None
     base_load_w: float = Field(350, ge=0)
+    away_load_w: float = Field(120, ge=0)
+
 
 
 class AppConfig(BaseModel):

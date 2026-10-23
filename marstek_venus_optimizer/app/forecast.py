@@ -29,11 +29,24 @@ def default_profile(base_w: float) -> np.ndarray:
 
 
 def forecast_load(slot_starts: Sequence[datetime], samples: Sequence[tuple[datetime, float]], tz,
-                  base_w: float = 350.0, current_w: Optional[float] = None, days: int = 14) -> np.ndarray:
+                  base_w: float = 350.0, current_w: Optional[float] = None, days: int = 14,
+                  is_away: bool = False, away_load_w: float = 120.0) -> np.ndarray:
     """Weighted slot-of-day profile (recent days weigh more, weekday/weekend
-    aware), blended with the current measured load for the first hour."""
+    aware), blended with the current measured load for the first hour.
+
+    When is_away=True, uses the lean away standby load profile without cooking/living peaks.
+    """
+    if is_away:
+        out = np.full(len(slot_starts), float(away_load_w))
+        if current_w is not None:
+            for i in range(len(slot_starts)):
+                a = math.exp(-i / 3.0)  # persistence for the next ~hour
+                out[i] = a * current_w + (1.0 - a) * away_load_w
+        return out
+
     buckets = bucketize(samples, tz)
     now = datetime.now(timezone.utc)
+
     prof_sum = np.zeros((2, 96))
     prof_w = np.zeros((2, 96))
     for k, v in buckets.items():
