@@ -148,51 +148,62 @@ function renderChart(slots) {
   const batteryPowers = slots.map(s => (s.action === 'charge' ? -s.charge_w : s.discharge_w));
   const socs = slots.map(s => s.soc_pct);
 
-  if (chartInstance) {
-    chartInstance.destroy();
-  }
-
   const style = getComputedStyle(document.body);
   const textPrimary = style.getPropertyValue('--text-primary').trim() || '#f9fafb';
   const textSecondary = style.getPropertyValue('--text-secondary').trim() || '#9ca3af';
   const gridColor = style.getPropertyValue('--border-color').trim() || 'rgba(55, 65, 81, 0.4)';
 
+  const chartData = {
+    labels: labels,
+    datasets: [
+      {
+        type: 'line',
+        label: 'SoC (%)',
+        data: socs,
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+        yAxisID: 'ySoC',
+        tension: 0.3,
+        borderWidth: 2,
+        pointRadius: 0
+      },
+      {
+        type: 'line',
+        label: 'All-In Buy (€/kWh)',
+        data: allinPrices,
+        borderColor: '#ec4899',
+        borderDash: [4, 4],
+        yAxisID: 'yPrice',
+        borderWidth: 2,
+        pointRadius: 0
+      },
+      {
+        type: 'bar',
+        label: 'Battery Power (W, -Chg/+Dis)',
+        data: batteryPowers,
+        backgroundColor: slots.map(s => s.action === 'charge' ? 'rgba(16, 185, 129, 0.7)' : (s.action === 'discharge' ? 'rgba(59, 130, 246, 0.7)' : 'rgba(156, 163, 175, 0.2)')),
+        yAxisID: 'yPower'
+      }
+    ]
+  };
+
+  if (chartInstance) {
+    chartInstance.data = chartData;
+    chartInstance.options.scales.x.ticks.color = textSecondary;
+    chartInstance.options.scales.x.grid.color = gridColor;
+    chartInstance.options.scales.yPower.ticks.color = textSecondary;
+    chartInstance.options.scales.yPower.title.color = textSecondary;
+    chartInstance.options.scales.yPower.grid.color = gridColor;
+    chartInstance.options.plugins.legend.labels.color = textPrimary;
+    chartInstance.update('none'); // Update without animation
+    return;
+  }
+
   chartInstance = new Chart(ctx, {
     type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [
-        {
-          type: 'line',
-          label: 'SoC (%)',
-          data: socs,
-          borderColor: '#10b981',
-          backgroundColor: 'rgba(16, 185, 129, 0.1)',
-          yAxisID: 'ySoC',
-          tension: 0.3,
-          borderWidth: 2,
-          pointRadius: 0
-        },
-        {
-          type: 'line',
-          label: 'All-In Buy (€/kWh)',
-          data: allinPrices,
-          borderColor: '#ec4899',
-          borderDash: [4, 4],
-          yAxisID: 'yPrice',
-          borderWidth: 2,
-          pointRadius: 0
-        },
-        {
-          type: 'bar',
-          label: 'Battery Power (W, -Chg/+Dis)',
-          data: batteryPowers,
-          backgroundColor: slots.map(s => s.action === 'charge' ? 'rgba(16, 185, 129, 0.7)' : (s.action === 'discharge' ? 'rgba(59, 130, 246, 0.7)' : 'rgba(156, 163, 175, 0.2)')),
-          yAxisID: 'yPower'
-        }
-      ]
-    },
+    data: chartData,
     options: {
+      animation: false, // Switch off all animation and flashing
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
@@ -457,11 +468,13 @@ function syncHATheme() {
     theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
 
-  document.documentElement.setAttribute('data-theme', theme);
-
-  // Re-render chart with new theme colors if active
-  if (chartInstance && currentPlan && currentPlan.slots) {
-    renderChart(currentPlan.slots);
+  const currentTheme = document.documentElement.getAttribute('data-theme');
+  if (currentTheme !== theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    // Re-render chart with new theme colors only when theme changed
+    if (chartInstance && currentPlan && currentPlan.slots) {
+      renderChart(currentPlan.slots);
+    }
   }
 }
 
