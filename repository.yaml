@@ -1,0 +1,6 @@
+# Home Assistant Add-on Repository definition
+# Add this repository in Home Assistant:
+#   Settings → Add-ons → Add-on Store → ⋮ → Repositories → paste the GitHub URL
+name: Marstek Venus Optimizer Add-ons
+url: https://github.com/CBK482/marstek_optim
+maintainer: CBK482 <support@ilgranaio.be>

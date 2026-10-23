@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Marstek Venus Battery Optimizer</title>
+  <link rel="stylesheet" href="./static/index.css">
+  <!-- Chart.js via CDN for responsive optimization horizon visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand-section">
+        <div class="brand-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="6" width="18" height="12" rx="2"></rect>
+            <path d="M6 12h4m4 0h4m2-4v8"></path>
+          </svg>
+        </div>
+        <div class="brand-title">
+          <h1>Venus Battery Optimizer <span id="conn-badge" class="badge">Connecting...</span></h1>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <div class="mode-select-wrap">
+          <label for="mode-select">Mode:</label>
+          <select id="mode-select">
+            <option value="active">Active Control</option>
+            <option value="shadow">Shadow (Dry-Run)</option>
+            <option value="force_charge">Force Charge</option>
+            <option value="hold">Hold Idle (0W)</option>
+            <option value="auto_ct">Auto CT Self-Consumption</option>
+          </select>
+        </div>
+        <button id="btn-solve-now" class="btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+          </svg>
+          Re-run Solver
+        </button>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="status">Live Dashboard</button>
+      <button class="tab-btn" data-tab="config">Configuration</button>
+      <button class="tab-btn" data-tab="logs">Decision Logs</button>
+    </nav>
+
+    <!-- Status Tab (Dashboard) -->
+    <main id="tab-status" class="tab-content">
+      <!-- KPI Cards -->
+      <section class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-title">Battery SoC</div>
+          <div class="kpi-val"><span id="kpi-soc">--</span>%</div>
+          <div class="kpi-sub" id="kpi-soc-wh">-- Wh / 5120 Wh</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Current Action</div>
+          <div class="kpi-val" id="kpi-action">--</div>
+          <div class="kpi-sub" id="kpi-power">Power: -- W</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Price (Spot / All-In)</div>
+          <div class="kpi-val"><span id="kpi-price-spot">--</span></div>
+          <div class="kpi-sub" id="kpi-price-allin">All-in: -- €/kWh</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">P1 Live / 15m Demand</div>
+          <div class="kpi-val"><span id="kpi-p1">--</span> W</div>
+          <div class="kpi-sub" id="kpi-avg-demand">15m Avg: -- W (Target: -- W)</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-title">Expected 24h Savings</div>
+          <div class="kpi-val" style="color: #34d399;"><span id="kpi-savings">--</span></div>
+          <div class="kpi-sub" id="kpi-status-msg">HiGHS LP Solver</div>
+        </div>
+      </section>
+
+      <!-- 24-36h Interactive Optimization Chart -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">Rolling Horizon Optimization Plan (15-min Intervals)</div>
+          <div id="chart-sub" class="field-help">Next 24–36 hours</div>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="opt-chart"></canvas>
+        </div>
+      </section>
+
+      <!-- Schedule Table -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">Detailed Schedule & Decision Explanations</div>
+        </div>
+        <div class="table-wrap">
+          <table id="schedule-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Action</th>
+                <th>Battery Power</th>
+                <th>Planned SoC</th>
+                <th>Spot Price</th>
+                <th>All-in Price</th>
+                <th>Load</th>
+                <th>Grid Net</th>
+                <th>Reasoning</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="9" style="text-align: center; color: var(--text-muted);">Loading plan...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <!-- Config Tab -->
+    <main id="tab-config" class="tab-content" style="display: none;">
+      <form id="config-form">
+        <div class="form-grid">
+          <!-- Entities & Discovery -->
+          <div class="form-section">
+            <div class="section-heading">
+              <span>Home Assistant Entities</span>
+              <button type="button" id="btn-discover" class="btn btn-secondary" style="font-size: 0.75rem; padding: 4px 10px;">
+                Auto-Discover
+              </button>
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-batt-dev">Marstek / HAME Device ID</label>
+              <input type="text" id="cfg-batt-dev" name="entities.battery_device">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-soc">Battery SoC Sensor</label>
+              <input type="text" id="cfg-soc" name="entities.soc">
+              <div class="field-preview" id="prev-soc">Live: --</div>
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-mode">Working Mode Select Entity</label>
+              <input type="text" id="cfg-mode" name="entities.working_mode">
+              <div class="field-preview" id="prev-mode">Live: --</div>
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-tp0-sw">Time Period 0 Switch (Charge)</label>
+              <input type="text" id="cfg-tp0-sw" name="entities.tp0_enabled">
+            </div>
+            <div class="field-row">
+              <label for="cfg-tp0-p">Time Period 0 Power (Negative W)</label>
+              <input type="text" id="cfg-tp0-p" name="entities.tp0_power">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-tp1-sw">Time Period 1 Switch (Hold / Idle)</label>
+              <input type="text" id="cfg-tp1-sw" name="entities.tp1_enabled">
+            </div>
+            <div class="field-row">
+              <label for="cfg-tp1-p">Time Period 1 Power (0 W)</label>
+              <input type="text" id="cfg-tp1-p" name="entities.tp1_power">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-p1-power">P1 Smart Meter Instantaneous Power</label>
+              <input type="text" id="cfg-p1-power" name="entities.p1_power">
+              <div class="field-preview" id="prev-p1-power">Live: --</div>
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-p1-avg">P1 15-min Average Demand (Kwartierpiek)</label>
+              <input type="text" id="cfg-p1-avg" name="entities.p1_avg_demand">
+              <div class="field-preview" id="prev-p1-avg">Live: --</div>
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-price">Price Sensor / Integration Entity</label>
+              <input type="text" id="cfg-price" name="entities.price">
+              <div class="field-preview" id="prev-price">Live: --</div>
+            </div>
+          </div>
+
+          <!-- Battery Technical Specs -->
+          <div class="form-section">
+            <div class="section-heading">Battery Technical Parameters</div>
+
+            <div class="field-row">
+              <label for="cfg-cap">Total Usable Capacity (Wh)</label>
+              <input type="number" id="cfg-cap" name="battery.capacity_wh" step="10">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-min-soc">Min SoC Limit (%)</label>
+              <input type="number" id="cfg-min-soc" name="battery.min_soc_pct" min="0" max="100">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-max-soc">Max SoC Limit (%)</label>
+              <input type="number" id="cfg-max-soc" name="battery.max_soc_pct" min="0" max="100">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-ch-max">Max Charge Power (W)</label>
+              <input type="number" id="cfg-ch-max" name="battery.max_charge_w" step="50">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-dis-max">Max Discharge Power (W)</label>
+              <input type="number" id="cfg-dis-max" name="battery.max_discharge_w" step="50">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-eff-ch">Charge Efficiency (%)</label>
+              <input type="number" id="cfg-eff-ch" name="battery.charge_eff_pct" min="50" max="100">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-eff-dis">Discharge Efficiency (%)</label>
+              <input type="number" id="cfg-eff-dis" name="battery.discharge_eff_pct" min="50" max="100">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-deg">Degradation Cost (€/kWh throughput)</label>
+              <input type="number" id="cfg-deg" name="battery.degradation_eur_per_kwh" step="0.005">
+              <div class="field-help">Prevents micro-arbitrage cycles if spread doesn't cover cycle wear</div>
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-dis-mode">Discharge Strategy</label>
+              <select id="cfg-dis-mode" name="battery.discharge_mode">
+                <option value="auto_ct">Auto CT (Zero Export / Follow House Load)</option>
+                <option value="manual">Manual Setpoint (Constant Power)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Belgian Retail Tariff & Kwartierpiek -->
+          <div class="form-section">
+            <div class="section-heading">Belgian Tariff & Grid Parameters</div>
+
+            <div class="field-row">
+              <label for="cfg-price-source">Price Source</label>
+              <select id="cfg-price-source" name="tariff.price_source">
+                <option value="auto">Auto (Sensor -> Nord Pool Action -> Energy-Charts)</option>
+                <option value="nordpool_service">Nord Pool Action (nordpool.get_prices_for_date)</option>
+                <option value="sensor">Sensor Attributes (HACS / Entsoe)</option>
+                <option value="energy_charts">Energy-Charts (ENTSO-E API Direct)</option>
+              </select>
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-price-area">Price Bidding Zone</label>
+              <input type="text" id="cfg-price-area" name="tariff.price_area">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-sup-mult">Supplier Spot Multiplier</label>
+              <input type="number" id="cfg-sup-mult" name="tariff.supplier_multiplier" step="0.01">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-sup-margin">Supplier Fixed Fee (€/kWh)</label>
+              <input type="number" id="cfg-sup-margin" name="tariff.supplier_margin_eur_kwh" step="0.001">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-grid-fee">Grid Volumetric Distribution (€/kWh)</label>
+              <input type="number" id="cfg-grid-fee" name="tariff.grid_fee_eur_kwh" step="0.001">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-excise">Excise & Energy Levies (€/kWh)</label>
+              <input type="number" id="cfg-excise" name="tariff.excise_levies_eur_kwh" step="0.001">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-vat">VAT Rate (%)</label>
+              <input type="number" id="cfg-vat" name="tariff.vat_pct" step="0.5">
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-peak-limit">Monthly Capacity Peak Limit (W)</label>
+              <input type="number" id="cfg-peak-limit" name="tariff.peak_limit_w" step="100">
+              <div class="field-help">Belgian Capacity Tariff target (Kwartierpiek protection)</div>
+            </div>
+
+            <div class="field-row">
+              <label for="cfg-cap-cost">Capacity Tariff Cost (€/kW/year)</label>
+              <input type="number" id="cfg-cap-cost" name="tariff.capacity_tariff_eur_kw_year" step="1">
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 24px; display: flex; gap: 12px; align-items: center;">
+          <button type="submit" class="btn" style="padding: 10px 22px;">
+            Save & Run Optimization Preview
+          </button>
+          <span id="save-status" class="field-help" style="font-size: 0.85rem;"></span>
+        </div>
+      </form>
+    </main>
+
+    <!-- Logs Tab -->
+    <main id="tab-logs" class="tab-content" style="display: none;">
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">Real-Time Controller & Watchdog Logs</div>
+          <button id="btn-refresh-logs" class="btn btn-secondary" style="font-size: 0.75rem;">Refresh</button>
+        </div>
+        <div class="table-wrap" style="max-height: 550px;">
+          <table id="logs-table">
+            <thead>
+              <tr>
+                <th style="width: 140px;">Timestamp</th>
+                <th style="width: 90px;">Level</th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No logs yet</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="./static/app.js"></script>
+</body>
+</html>

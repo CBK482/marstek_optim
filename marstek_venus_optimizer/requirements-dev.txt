@@ -1,0 +1,6 @@
+# Local development / test dependencies (outside Home Assistant)
+-r requirements.txt
+numpy>=1.24
+scipy>=1.10
+pytest>=8.0
+pytest-asyncio>=0.23

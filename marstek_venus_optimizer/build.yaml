@@ -1,0 +1,9 @@
+# Debian base images: numpy/scipy (with HiGHS) are installed from Debian
+# packages, which are available pre-built for every architecture incl. armv7.
+build_from:
+  aarch64: ghcr.io/home-assistant/aarch64-base-debian:bookworm
+  amd64: ghcr.io/home-assistant/amd64-base-debian:bookworm
+  armv7: ghcr.io/home-assistant/armv7-base-debian:bookworm
+labels:
+  org.opencontainers.image.title: "Marstek Venus Battery Optimizer"
+  org.opencontainers.image.source: "https://github.com/CBK482/marstek_optim"
