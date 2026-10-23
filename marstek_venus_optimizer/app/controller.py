@@ -69,6 +69,8 @@ class Controller:
         self._shave_quarter: Optional[datetime] = None
         self._history: list[tuple[datetime, float]] = []
         self._states: dict[str, dict] = {}
+        self.cmd_delay_s: float = 1.2
+        self.verify_delay_s: float = 3.5
 
     # ------------------------------------------------------------------ logging
     def log(self, msg: str, level: str = "info") -> None:
@@ -358,6 +360,80 @@ class Controller:
             await self.apply(cmd, reason)
 
     # ------------------------------------------------------------------ actuation
+    def _expected_states(self, cmd: Command) -> dict[str, Any]:
+        e, b = self.cfg.entities, self.cfg.battery
+        expected: dict[str, Any] = {}
+        if cmd.kind == "charge":
+            if e.working_mode:
+                expected[e.working_mode] = b.mode_option_manual
+            if e.tp0_enabled:
+                expected[e.tp0_enabled] = "on"
+            if e.tp1_enabled:
+                expected[e.tp1_enabled] = "off"
+            if e.tp0_power:
+                expected[e.tp0_power] = float(int(round(-abs(cmd.power_w))))
+        elif cmd.kind == "idle":
+            if e.working_mode:
+                expected[e.working_mode] = b.mode_option_manual
+            if e.tp1_enabled:
+                expected[e.tp1_enabled] = "on"
+            if e.tp0_enabled:
+                expected[e.tp0_enabled] = "off"
+            if e.tp1_power:
+                expected[e.tp1_power] = 0.0
+        elif cmd.kind == "discharge_manual":
+            if e.working_mode:
+                expected[e.working_mode] = b.mode_option_manual
+            if e.tp0_enabled:
+                expected[e.tp0_enabled] = "on"
+            if e.tp1_enabled:
+                expected[e.tp1_enabled] = "off"
+            if e.tp0_power:
+                expected[e.tp0_power] = float(int(round(abs(cmd.power_w))))
+        elif cmd.kind == "discharge_auto":
+            if e.working_mode:
+                expected[e.working_mode] = b.mode_option_auto
+            if e.tp0_enabled:
+                expected[e.tp0_enabled] = "off"
+            if e.tp1_enabled:
+                expected[e.tp1_enabled] = "off"
+        return expected
+
+    def _check_mismatches(self, expected: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
+        mismatches: dict[str, tuple[Any, Any]] = {}
+        for eid, exp in expected.items():
+            st = self._states.get(eid)
+            act_str = st["state"] if st else None
+            if eid.startswith("number."):
+                act_num = _to_float(act_str)
+                if act_num is None or abs(act_num - exp) >= 1.0:
+                    mismatches[eid] = (act_num, exp)
+            else:
+                if act_str != exp:
+                    mismatches[eid] = (act_str, exp)
+        return mismatches
+
+    def _build_calls_for_mismatches(self, mismatches: dict[str, tuple[Any, Any]]) -> list[tuple[str, str, dict]]:
+        def prio(item: tuple[str, tuple[Any, Any]]) -> int:
+            eid, (_act, exp) = item
+            if eid.startswith("switch.") and exp == "on":
+                return 0
+            if eid.startswith("number."):
+                return 1
+            if eid.startswith("switch.") and exp == "off":
+                return 2
+            return 3  # select
+
+        calls: list[tuple[str, str, dict]] = []
+        for eid, (_act, target) in sorted(mismatches.items(), key=prio):
+            if eid.startswith("switch."):
+                calls.append(("switch", "turn_on" if target == "on" else "turn_off", {"entity_id": eid}))
+            elif eid.startswith("number."):
+                calls.append(("number", "set_value", {"entity_id": eid, "value": int(round(target))}))
+            elif eid.startswith("select."):
+                calls.append(("select", "select_option", {"entity_id": eid, "option": target}))
+        return calls
+
     async def apply(self, cmd: Command, reason: str) -> None:
         e, b = self.cfg.entities, self.cfg.battery
         dry = self.dry_run
@@ -366,10 +442,6 @@ class Controller:
         def cur(eid: str) -> Optional[str]:
             st = self._states.get(eid)
             return st["state"] if st else None
-
-        def select(option: str):
-            if e.working_mode and cur(e.working_mode) != option:
-                calls.append(("select", "select_option", {"entity_id": e.working_mode, "option": option}))
 
         def switch(eid: str, on: bool):
             if eid and cur(eid) != ("on" if on else "off"):
@@ -382,22 +454,34 @@ class Controller:
             if cv is None or abs(cv - value) >= 1:
                 calls.append(("number", "set_value", {"entity_id": eid, "value": int(round(value))}))
 
+        def select(option: str):
+            if e.working_mode and cur(e.working_mode) != option:
+                calls.append(("select", "select_option", {"entity_id": e.working_mode, "option": option}))
+
+        # Hardware rule: Sending changes in a burst causes the battery to drop commands.
+        # Turning the active period switch ON first automatically switches working_mode to Manual.
+        # Turning the inactive period switch OFF second prevents falling into an unmanaged limbo state.
         if cmd.kind == "charge":
-            select(b.mode_option_manual)
-            switch(e.tp1_enabled, False)
+            switch(e.tp0_enabled, True)
             number(e.tp0_power, -abs(cmd.power_w))
-            switch(e.tp0_enabled, True)
-        elif cmd.kind == "idle":
-            select(b.mode_option_manual)
-            switch(e.tp0_enabled, False)
-            number(e.tp1_power, 0)
-            switch(e.tp1_enabled, True)
-        elif cmd.kind == "discharge_manual":
-            select(b.mode_option_manual)
             switch(e.tp1_enabled, False)
-            number(e.tp0_power, abs(cmd.power_w))
+            if cur(e.tp0_enabled) == "on" and cur(e.working_mode) != b.mode_option_manual:
+                select(b.mode_option_manual)
+        elif cmd.kind == "idle":
+            switch(e.tp1_enabled, True)
+            number(e.tp1_power, 0)
+            switch(e.tp0_enabled, False)
+            if cur(e.tp1_enabled) == "on" and cur(e.working_mode) != b.mode_option_manual:
+                select(b.mode_option_manual)
+        elif cmd.kind == "discharge_manual":
             switch(e.tp0_enabled, True)
+            number(e.tp0_power, abs(cmd.power_w))
+            switch(e.tp1_enabled, False)
+            if cur(e.tp0_enabled) == "on" and cur(e.working_mode) != b.mode_option_manual:
+                select(b.mode_option_manual)
         elif cmd.kind == "discharge_auto":
+            switch(e.tp0_enabled, False)
+            switch(e.tp1_enabled, False)
             select(b.mode_option_auto)
 
         async with self._apply_lock:
@@ -407,14 +491,65 @@ class Controller:
                                 for d, s, v in calls) or "no entity changes needed"
             self.log(f"{prefix} {cmd.label} — {reason} [{svc_txt}]", "action")
             ok = True
-            if not dry:
-                for domain, service, data in calls:
+            if not dry and calls:
+                for idx, (domain, service, data) in enumerate(calls):
+                    if idx > 0 and self.cmd_delay_s > 0:
+                        await asyncio.sleep(self.cmd_delay_s)
                     try:
                         await self.ha.call_service(domain, service, data)
                     except Exception as err:  # noqa: BLE001
                         ok = False
                         self.log(f"Service {domain}.{service} {data} failed: {err}", "error")
                         break
+
+            # Hardware state verification with retry
+            if not dry and ok and calls:
+                if self.verify_delay_s > 0:
+                    await asyncio.sleep(self.verify_delay_s)
+                try:
+                    fresh = await self.ha.get_states()
+                    self._states = {s["entity_id"]: s for s in fresh}
+                except Exception as err:  # noqa: BLE001
+                    self.log(f"Verification fetch failed: {err}", "warning")
+                    fresh = None
+
+                if fresh:
+                    expected = self._expected_states(cmd)
+                    mismatches = self._check_mismatches(expected)
+                    if mismatches:
+                        m_str = ", ".join(
+                            f"{eid.split('.')[-1]} is {act!r} (expected {exp!r})"
+                            for eid, (act, exp) in mismatches.items()
+                        )
+                        self.log(f"Verification mismatch: {m_str}. Retrying...", "warning")
+                        retries = self._build_calls_for_mismatches(mismatches)
+                        for r_idx, (domain, service, data) in enumerate(retries):
+                            if r_idx > 0 and self.cmd_delay_s > 0:
+                                await asyncio.sleep(self.cmd_delay_s)
+                            try:
+                                await self.ha.call_service(domain, service, data)
+                            except Exception as err:  # noqa: BLE001
+                                self.log(f"Retry {domain}.{service} {data} failed: {err}", "error")
+                        if self.verify_delay_s > 0:
+                            await asyncio.sleep(min(self.verify_delay_s, 2.0))
+                        try:
+                            fresh2 = await self.ha.get_states()
+                            self._states = {s["entity_id"]: s for s in fresh2}
+                            remaining = self._check_mismatches(expected)
+                            if remaining:
+                                rem_str = ", ".join(
+                                    f"{eid.split('.')[-1]} is {act!r} (expected {exp!r})"
+                                    for eid, (act, exp) in remaining.items()
+                                )
+                                self.log(f"Verification still failed after retry: {rem_str}", "error")
+                                ok = False
+                            else:
+                                self.log(f"Verified {cmd.label} after retry", "info")
+                        except Exception as err:  # noqa: BLE001
+                            self.log(f"Re-verification fetch failed: {err}", "warning")
+                    else:
+                        self.log(f"Verified {cmd.label}: hardware state confirmed", "info")
+
             try:
                 self.store.add_action(self.mode, cmd.kind, cmd.power_w, "shadow" if dry else "ha", dry, reason)
             except Exception as err:  # noqa: BLE001

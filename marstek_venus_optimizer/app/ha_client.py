@@ -274,6 +274,8 @@ class MockHA:
             self.values[eid] = data["option"]
         elif domain == "switch":
             self.values[eid] = "on" if service == "turn_on" else "off"
+            if service == "turn_on" and "time_period" in (eid or ""):
+                self.values[f"select.{self.BAT}_working_mode"] = "Manual"
         elif domain == "number" and service == "set_value":
             self.values[eid] = float(data["value"])
         elif domain == "nordpool":
