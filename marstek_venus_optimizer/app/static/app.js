@@ -152,6 +152,11 @@ function renderChart(slots) {
     chartInstance.destroy();
   }
 
+  const style = getComputedStyle(document.body);
+  const textPrimary = style.getPropertyValue('--text-primary').trim() || '#f9fafb';
+  const textSecondary = style.getPropertyValue('--text-secondary').trim() || '#9ca3af';
+  const gridColor = style.getPropertyValue('--border-color').trim() || 'rgba(55, 65, 81, 0.4)';
+
   chartInstance = new Chart(ctx, {
     type: 'bar',
     data: {
@@ -193,15 +198,15 @@ function renderChart(slots) {
       interaction: { mode: 'index', intersect: false },
       scales: {
         x: {
-          ticks: { color: '#9ca3af', maxTicksLimit: 14 },
-          grid: { color: 'rgba(55, 65, 81, 0.4)' }
+          ticks: { color: textSecondary, maxTicksLimit: 14 },
+          grid: { color: gridColor }
         },
         yPower: {
           type: 'linear',
           position: 'left',
-          title: { display: true, text: 'Power (W)', color: '#9ca3af' },
-          ticks: { color: '#9ca3af' },
-          grid: { color: 'rgba(55, 65, 81, 0.4)' }
+          title: { display: true, text: 'Power (W)', color: textSecondary },
+          ticks: { color: textSecondary },
+          grid: { color: gridColor }
         },
         ySoC: {
           type: 'linear',
@@ -221,7 +226,7 @@ function renderChart(slots) {
         }
       },
       plugins: {
-        legend: { labels: { color: '#f9fafb' } }
+        legend: { labels: { color: textPrimary } }
       }
     }
   });
@@ -423,12 +428,58 @@ async function refreshLogs() {
 
 document.getElementById('btn-refresh-logs').addEventListener('click', refreshLogs);
 
+// Home Assistant Theme Sync (Parent frame or system preference)
+function syncHATheme() {
+  let theme = null;
+
+  // 1. Check if embedded inside Home Assistant iframe and accessible
+  try {
+    if (window.parent && window.parent !== window) {
+      const parentDoc = window.parent.document;
+      const haEl = parentDoc.querySelector('home-assistant') || parentDoc.documentElement;
+      if (haEl) {
+        // HA sets dark attribute or class on <html> or <home-assistant>
+        const isDark = haEl.classList.contains('dark') ||
+                       haEl.hasAttribute('dark') ||
+                       (window.parent.hass && window.parent.hass.themes && window.parent.hass.themes.darkMode);
+        if (isDark != null) {
+          theme = isDark ? 'dark' : 'light';
+        }
+      }
+    }
+  } catch (e) {
+    // Cross-origin restriction fallback
+  }
+
+  // 2. If not detected from parent, check OS / browser media query (Bert's profile "Auto")
+  if (!theme) {
+    theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+
+  document.documentElement.setAttribute('data-theme', theme);
+
+  // Re-render chart with new theme colors if active
+  if (chartInstance && currentPlan && currentPlan.slots) {
+    renderChart(currentPlan.slots);
+  }
+}
+
+// Listen for system / HA theme changes
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncHATheme);
+window.addEventListener('message', (ev) => {
+  if (ev.data && (ev.data.theme || ev.data.darkMode != null)) {
+    syncHATheme();
+  }
+});
+
 // Initial Load & Refresh Intervals
 window.addEventListener('DOMContentLoaded', () => {
+  syncHATheme();
   refreshStatus();
   refreshPlan();
   loadConfig();
 
+  setInterval(syncHATheme, 3000);
   setInterval(refreshStatus, 10000);
   setInterval(refreshPlan, 60000);
 });
