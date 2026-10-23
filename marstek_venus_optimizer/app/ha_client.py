@@ -191,7 +191,7 @@ class MockHA:
         self.load = self.house_load(now) + self._rng.uniform(-60, 60)
         mode = self.values[f"select.{self.BAT}_working_mode"]
         p = 0.0
-        if mode == "Auto":
+        if mode in ("Automatic", "Auto"):
             p = min(self.load, 800.0) if self.soc > 10 else 0.0
         elif self.values[f"switch.{self.BAT}_time_period_0_enabled"] == "on":
             p = float(self.values[f"number.{self.BAT}_time_period_0_power"])
@@ -242,7 +242,7 @@ class MockHA:
             self._st(f"sensor.{b}_battery_capacity_wh", round(self.soc / 100 * self.capacity_wh), "Venus Battery Capacity", "Wh"),
             self._st(f"sensor.{b}_ac_power", round(self.batt_power), "Venus AC Power", "W", device_class="power"),
             self._st(f"select.{b}_working_mode", self.values[f"select.{b}_working_mode"], "Venus Working Mode",
-                     options=["Auto", "Manual", "AI", "Trading"]),
+                     options=["Automatic", "Manual", "Trading", "AI"]),
             self._st(f"switch.{b}_time_period_0_enabled", self.values[f"switch.{b}_time_period_0_enabled"], "Venus Time Period 0 Enabled"),
             self._st(f"switch.{b}_time_period_1_enabled", self.values[f"switch.{b}_time_period_1_enabled"], "Venus Time Period 1 Enabled"),
             self._st(f"number.{b}_time_period_0_power", self.values[f"number.{b}_time_period_0_power"], "Venus Time Period 0 Power", "W", min=-2500, max=2500),

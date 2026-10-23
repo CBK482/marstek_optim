@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,7 +66,14 @@ class BatteryConfig(BaseModel):
     discharge_mode: Literal["auto_ct", "manual"] = "auto_ct"
     battery_power_positive: Literal["discharge", "charge"] = "discharge"
     mode_option_manual: str = "Manual"
-    mode_option_auto: str = "Auto"
+    mode_option_auto: str = "Automatic"
+
+    @field_validator("mode_option_auto", mode="before")
+    @classmethod
+    def _coerce_auto(cls, v: object) -> str:
+        if v == "Auto":
+            return "Automatic"
+        return str(v) if v is not None else "Automatic"
 
 
 class TariffConfig(BaseModel):

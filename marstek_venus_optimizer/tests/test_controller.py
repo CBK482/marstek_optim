@@ -137,3 +137,21 @@ async def test_verification_retries_on_mismatch(ctl):
     assert any("Verification mismatch" in l["msg"] for l in ctl.logs)
     assert any("Verified Charge 1500 W after retry" in l["msg"] for l in ctl.logs)
 
+
+@pytest.mark.asyncio
+async def test_discharge_auto_switches_to_automatic(ctl):
+    await ctl.refresh_live()
+    # First put in charge mode
+    await ctl.apply(Command("charge", 1500), "prep")
+    assert ctl.ha.values[f"select.{B}_working_mode"] == "Manual"
+
+    # Now switch to discharge_auto (follow house load)
+    await ctl.refresh_live()
+    ctl.ha.calls.clear()
+    await ctl.apply(Command("discharge_auto"), "follow_load")
+
+    assert ctl.ha.values[f"select.{B}_working_mode"] == "Automatic"
+    assert ctl.ha.values[f"switch.{B}_time_period_0_enabled"] == "off"
+    assert ctl.ha.values[f"switch.{B}_time_period_1_enabled"] == "off"
+
+
