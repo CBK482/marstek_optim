@@ -215,3 +215,26 @@ def test_forecast_load_applies_fallback_floor_when_history_suppressed():
         assert preds[i] >= 300.0, f"Slot {i} was {preds[i]}W, expected at least baseline 300W"
 
 
+def test_target_soc_charges_from_min_to_reserve_for_fluvius_protection():
+    # When battery starts at 10% (min SoC), target SoC (50%) causes it to charge to 50%
+    # during cheap/normal periods (24h horizon) so that it maintains reserve capacity for Fluvius peak shaving.
+    res = optimize(make_input([0.20] * 96, soc=10), params(target_soc_pct=50.0, terminal_value_eur_kwh=None))
+    assert res.ok
+    soc = arr(res, "soc_pct")
+    assert soc[-1] == pytest.approx(50.0, abs=1.0)
+    assert any("charging to target 50% SoC reserve" in s.reason for s in res.slots if s.action == "charge")
+
+
+def test_target_soc_preserves_headroom_for_arbitrage_and_returns():
+    # Starting at 50% SoC, when cheap prices occur it can charge up to 90%,
+    # discharge during expensive prices, and return towards 50% target reserve.
+    spot = [0.05] * 8 + [0.45] * 8 + [0.15] * 16
+    res = optimize(make_input(spot, soc=50), params(target_soc_pct=50.0, terminal_value_eur_kwh=None))
+    assert res.ok
+    soc = arr(res, "soc_pct")
+    assert soc[7] == pytest.approx(90.0, abs=1.0)  # charged to max in cheap hours
+    assert soc[15] <= 60.0  # discharged in expensive hours
+    assert soc[-1] == pytest.approx(50.0, abs=1.0)  # returned to target reserve
+
+
+

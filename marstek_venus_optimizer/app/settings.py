@@ -58,6 +58,7 @@ class EntityConfig(BaseModel):
 class BatteryConfig(BaseModel):
     capacity_wh: float = Field(5120, gt=0)
     min_soc_pct: float = Field(10, ge=0, le=100)
+    target_soc_pct: float = Field(50, ge=0, le=100)
     max_soc_pct: float = Field(90, ge=0, le=100)
     max_charge_w: float = Field(1500, ge=0)
     max_discharge_w: float = Field(800, ge=0)
@@ -102,6 +103,8 @@ class ControlConfig(BaseModel):
     min_command_delta_w: float = Field(50, ge=0)
     peak_margin_w: float = Field(150, ge=0)
     peak_shaving: bool = True
+    target_soc_weight: float = Field(0.005, ge=0)
+    target_soc_weight_above: float = Field(0.001, ge=0)
     terminal_value_percentile: float = Field(30, ge=0, le=100)
     terminal_value_eur_kwh: Optional[float] = None
     base_load_w: float = Field(350, ge=0)

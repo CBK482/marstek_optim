@@ -121,6 +121,8 @@ async def save_config(payload: dict = Body(...), preview: bool = Query(True)):
     old = controller.cfg.control
     if cfg.battery.min_soc_pct >= cfg.battery.max_soc_pct:
         raise HTTPException(400, "Min SoC must be lower than Max SoC")
+    if not (cfg.battery.min_soc_pct <= cfg.battery.target_soc_pct <= cfg.battery.max_soc_pct):
+        raise HTTPException(400, "Target SoC must be between Min SoC and Max SoC")
     controller.set_config(cfg)
     controller.prices.last_fetch = None  # price entity / source may have changed
     controller.prices._nordpool_entry = None  # noqa: SLF001

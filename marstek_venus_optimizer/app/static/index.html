@@ -212,6 +212,12 @@
             </div>
 
             <div class="field-row">
+              <label for="cfg-target-soc">Target / Reserve SoC (%)</label>
+              <input type="number" id="cfg-target-soc" name="battery.target_soc_pct" min="0" max="100">
+              <div class="field-help">Operating SoC target (default 50%). Maintains reserve capacity for Fluvius overcapacity peak shaving while keeping headroom for solar absorption.</div>
+            </div>
+
+            <div class="field-row">
               <label for="cfg-max-soc">Max SoC Limit (%)</label>
               <input type="number" id="cfg-max-soc" name="battery.max_soc_pct" min="0" max="100">
             </div>

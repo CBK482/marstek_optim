@@ -34,6 +34,7 @@ from scipy.optimize import linprog
 class OptimizerParams:
     capacity_wh: float = 5120.0
     min_soc_pct: float = 10.0
+    target_soc_pct: float = 50.0
     max_soc_pct: float = 90.0
     max_charge_w: float = 1500.0
     max_discharge_w: float = 800.0
@@ -48,6 +49,8 @@ class OptimizerParams:
     min_action_w: float = 100.0
     terminal_value_eur_kwh: Optional[float] = None
     terminal_value_percentile: float = 30.0
+    target_soc_weight: float = 0.005  # EUR/kWh/h penalty for being below target SoC
+    target_soc_weight_above: float = 0.001  # EUR/kWh/h penalty for being above target SoC
 
     @classmethod
     def from_config(cls, cfg, peak_limit_w: Optional[float] = None) -> "OptimizerParams":
@@ -55,6 +58,7 @@ class OptimizerParams:
         return cls(
             capacity_wh=b.capacity_wh,
             min_soc_pct=b.min_soc_pct,
+            target_soc_pct=getattr(b, "target_soc_pct", 50.0),
             max_soc_pct=b.max_soc_pct,
             max_charge_w=b.max_charge_w,
             max_discharge_w=b.max_discharge_w,
@@ -71,6 +75,8 @@ class OptimizerParams:
             min_action_w=c.min_action_w,
             terminal_value_eur_kwh=c.terminal_value_eur_kwh,
             terminal_value_percentile=c.terminal_value_percentile,
+            target_soc_weight=getattr(c, "target_soc_weight", 0.005),
+            target_soc_weight_above=getattr(c, "target_soc_weight_above", 0.001),
         )
 
 
@@ -168,12 +174,15 @@ def optimize(inp: OptimizerInput, params: OptimizerParams, tz=None) -> Optimizat
         f_el = min(0.9, 1.0 - frac)
         lim[0] = max(0.0, (lim[0] - f_el * inp.quarter_avg_so_far_w / 1000.0) / (1.0 - f_el))
 
-    # Variable layout
+    # Variable layout:
+    # CH, DIS, IMP, EXP, E, PE, DEV_BELOW, DEV_ABOVE, (MILP) U
     I_CH, I_DIS, I_IMP, I_EXP, I_E = (np.arange(T) + k * T for k in range(5))
     I_PE = 5 * T
+    I_BELOW = np.arange(T) + 5 * T + 1
+    I_ABOVE = np.arange(T) + 6 * T + 1
     milp = bool(params.use_milp)
-    I_U = np.arange(T) + 5 * T + 1
-    n = 5 * T + 1 + (T if milp else 0)
+    I_U = np.arange(T) + 7 * T + 1
+    n = 7 * T + 1 + (T if milp else 0)
 
     # Objective
     c = np.zeros(n)
@@ -183,6 +192,8 @@ def optimize(inp: OptimizerInput, params: OptimizerParams, tz=None) -> Optimizat
     c[I_EXP] = -dt * ce
     c[I_E[-1]] -= tv
     c[I_PE] = params.peak_penalty_eur_per_kw
+    c[I_BELOW] = dt * params.target_soc_weight
+    c[I_ABOVE] = dt * params.target_soc_weight_above
 
     # Equalities: SoC dynamics + power balance
     rows, cols, vals = [], [], []
@@ -204,7 +215,7 @@ def optimize(inp: OptimizerInput, params: OptimizerParams, tz=None) -> Optimizat
         b_eq[r] = load[t]
     A_eq = sparse.csr_matrix((vals, (rows, cols)), shape=(2 * T, n))
 
-    # Inequalities: kwartierpiek + (MILP) charge/discharge exclusivity
+    # Inequalities: kwartierpiek + target SoC deviations + (MILP) charge/discharge exclusivity
     rows, cols, vals, b_ub = [], [], [], []
     r = 0
     for t in range(T):
@@ -213,6 +224,23 @@ def optimize(inp: OptimizerInput, params: OptimizerParams, tz=None) -> Optimizat
         vals += [1.0, -1.0]
         b_ub.append(lim[t])
         r += 1
+
+    e_target = cap * float(np.clip(params.target_soc_pct, params.min_soc_pct, params.max_soc_pct)) / 100.0
+    for t in range(T):
+        # -E[t] - DEV_BELOW[t] <= -e_target  <=>  e_target - E[t] <= DEV_BELOW[t]
+        rows += [r, r]
+        cols += [I_E[t], I_BELOW[t]]
+        vals += [-1.0, -1.0]
+        b_ub.append(-e_target)
+        r += 1
+
+        # E[t] - DEV_ABOVE[t] <= e_target  <=>  E[t] - e_target <= DEV_ABOVE[t]
+        rows += [r, r]
+        cols += [I_E[t], I_ABOVE[t]]
+        vals += [1.0, -1.0]
+        b_ub.append(e_target)
+        r += 1
+
     if milp:
         for t in range(T):
             rows += [r, r]
@@ -239,6 +267,8 @@ def optimize(inp: OptimizerInput, params: OptimizerParams, tz=None) -> Optimizat
         bounds[I_IMP[t]] = (0.0, max(grid_max, float(load[t])))
         bounds[I_EXP[t]] = (0.0, max(grid_max, float(-load[t])))
         bounds[I_E[t]] = (lo_e, hi_e)
+        bounds[I_BELOW[t]] = (0.0, cap)
+        bounds[I_ABOVE[t]] = (0.0, cap)
     bounds[I_PE] = (0.0, None)
     integrality = None
     if milp:
@@ -362,6 +392,8 @@ def explain(slots: list[SlotPlan], params: OptimizerParams, tv: float) -> None:
             k = next_dis[t]
             if k is not None:
                 why += f"; energy is planned for discharge at {slots[k].label[4:]} ({_eur(slots[k].import_price)})"
+            elif s.soc_pct <= params.target_soc_pct + 1.0:
+                why += f"; charging to target {params.target_soc_pct:.0f}% SoC reserve for Fluvius peak protection"
             else:
                 why += f"; carried beyond the horizon (valued {_eur(tv)})"
             if at_peak:
@@ -380,6 +412,7 @@ def explain(slots: list[SlotPlan], params: OptimizerParams, tv: float) -> None:
         else:
             lead = "Idle (0W)"
             k, j = next_dis[t], next_ch[t]
+            rt = 1 - params.eta_ch * params.eta_dis
             if s.soc_start_pct <= params.min_soc_pct + 0.5:
                 why = f"at minimum SoC {soc_txt}"
                 if j is not None:
@@ -387,11 +420,13 @@ def explain(slots: list[SlotPlan], params: OptimizerParams, tv: float) -> None:
             elif s.soc_start_pct >= params.max_soc_pct - 0.5 and k is not None:
                 why = (f"battery full ({soc_txt}); holding for discharge at "
                        f"{slots[k].label[4:]} ({_eur(slots[k].import_price)})")
+            elif abs(s.soc_start_pct - params.target_soc_pct) <= 2.0 and k is None:
+                why = (f"holding target {soc_txt} SoC reserve for Fluvius peak shaving and "
+                       f"overcapacity protection ({rt*100:.0f}% round-trip loss barrier)")
             elif k is not None:
                 why = (f"holding {soc_txt} SoC; current all-in {_eur(s.import_price)}, saving discharge "
                        f"for {slots[k].label[4:]} at {_eur(slots[k].import_price)}")
             else:
-                rt = 1 - params.eta_ch * params.eta_dis
                 why = (f"holding {soc_txt} SoC; no spread beats round-trip losses ({rt*100:.0f}%) "
                        f"+ degradation (€{params.degradation_eur_per_kwh:.3f}/kWh)")
         s.reason = f"{s.label[4:]} — {lead}: {why}"
