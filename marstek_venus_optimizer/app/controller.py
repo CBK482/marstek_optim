@@ -436,20 +436,29 @@ class Controller:
             # Shave a live peak by discharging (Auto CT / Automatic follows the house load)
             can_dis = soc is None or soc > b.min_soc_pct + 1
             in_shave = self._shave_quarter == price_mod.floor_slot(now)
-            # While shaving in Automatic without a battery power sensor the house
-            # load is unobservable (P1 ≈ 0) -> hold the shave until quarter end.
-            keep = in_shave and (batt_ch is None or house > allowed - 2 * c.peak_margin_w)
             avg_exceeded = (avg is not None and avg >= limit)
+            shave_trigger_w = min(limit, allowed)
+            peak_detected = (
+                (house is not None and house >= shave_trigger_w)
+                or (house is None and p1 is not None and p1 >= shave_trigger_w)
+                or avg_exceeded
+            )
+
+            # Once entered into Automatic mode for peak shaving, stay in Automatic until end of quarter
             if (c.peak_shaving and can_dis and cmd.kind in ("idle", "charge") and self.mode != "hold"
-                    and (house > allowed or avg_exceeded or keep)):
+                    and (peak_detected or in_shave)):
                 self._shave_quarter = price_mod.floor_slot(now)
                 self.flags["shaving"] = True
-                if avg_exceeded:
+                if in_shave and not peak_detected:
+                    reason = (f"Peak shaving: holding Automatic mode until end of quarter "
+                              f"(target {self.peak_target_w:.0f} W)")
+                elif avg_exceeded:
                     reason = (f"Peak shaving: 15-min average demand {avg:.0f} W reached limit {limit:.0f} W "
                               f"(target {self.peak_target_w:.0f} W) → switched to Automatic")
                 else:
-                    reason = (f"Peak shaving: house load {house:.0f} W exceeds allowed import {allowed:.0f} W "
-                              f"for this quarter (target {self.peak_target_w:.0f} W)")
+                    curr_val = house if house is not None else p1
+                    reason = (f"Peak shaving: demand {curr_val:.0f} W reached threshold {shave_trigger_w:.0f} W "
+                              f"(target {self.peak_target_w:.0f} W) → switched to Automatic")
                 cmd = Command("discharge_auto")
 
         if self.flags["safety"]:

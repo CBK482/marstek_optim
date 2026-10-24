@@ -273,5 +273,56 @@ async def test_presence_home_uses_standard_profile(ctl):
     assert max(loads) >= 700.0
 
 
+@pytest.mark.asyncio
+async def test_peak_shaving_acts_sooner_and_holds_automatic_until_end_of_quarter(ctl, monkeypatch):
+    from datetime import datetime, timezone, timedelta
+    ctl.cfg.control.mode = "force_charge"
+    ctl.cfg.control.peak_shaving = True
+    ctl.cfg.tariff.peak_limit_w = 2500
+    ctl.cfg.control.peak_margin_w = 200  # trigger threshold = 2300 W
+    ctl.ha.soc = 50
+
+    t0 = datetime(2026, 10, 24, 15, 33, tzinfo=timezone.utc)
+    # Mock datetime.now in controller to fixed t0
+    import app.controller as ctl_module
+    class MockDatetime:
+        @classmethod
+        def now(cls, tz=None):
+            return t0
+        @classmethod
+        def fromisoformat(cls, s):
+            return datetime.fromisoformat(s)
+
+    monkeypatch.setattr(ctl_module, "datetime", MockDatetime)
+
+    # 1. House load reaches 2350 W (exceeds 2300 W threshold)
+    ctl.ha.house_load = lambda ts: 2350.0
+    await ctl.watchdog()
+
+    assert ctl.effective.kind == "discharge_auto"
+    assert ctl.flags["shaving"] is True
+    assert "switched to Automatic" in ctl.reason
+
+    # 2. Later in the same quarter (15:40), house load drops to 500 W
+    t0 = datetime(2026, 10, 24, 15, 40, tzinfo=timezone.utc)
+    ctl.ha.house_load = lambda ts: 500.0
+    await ctl.watchdog()
+
+    # Must stay in Automatic until the end of the quarter
+    assert ctl.effective.kind == "discharge_auto"
+    assert ctl.flags["shaving"] is True
+    assert "holding Automatic mode until end of quarter" in ctl.reason
+
+    # 3. New quarter begins (15:45), house load is still 500 W
+    t0 = datetime(2026, 10, 24, 15, 45, 5, tzinfo=timezone.utc)
+    ctl.ha.house_load = lambda ts: 500.0
+    await ctl.watchdog()
+
+    # Peak shaving has ended; returns to normal plan/idle
+    assert ctl.effective.kind != "discharge_auto"
+    assert ctl.flags["shaving"] is False
+
+
+
 
 

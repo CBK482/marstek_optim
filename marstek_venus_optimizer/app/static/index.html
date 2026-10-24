@@ -308,6 +308,12 @@
             </div>
 
             <div class="field-row">
+              <label for="cfg-peak-margin">Peak Shaving Safety Margin (W)</label>
+              <input type="number" id="cfg-peak-margin" name="control.peak_margin_w" step="50">
+              <div class="field-help">Safety buffer below target to trigger Automatic shaving early (default 200 W, triggers at 2300 W for a 2500 W limit)</div>
+            </div>
+
+            <div class="field-row">
               <label for="cfg-cap-cost">Capacity Tariff Cost (€/kW/year)</label>
               <input type="number" id="cfg-cap-cost" name="tariff.capacity_tariff_eur_kw_year" step="any">
             </div>

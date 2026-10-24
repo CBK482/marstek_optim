@@ -101,7 +101,7 @@ class ControlConfig(BaseModel):
     use_milp: bool = True
     min_action_w: float = Field(100, ge=0)
     min_command_delta_w: float = Field(50, ge=0)
-    peak_margin_w: float = Field(150, ge=0)
+    peak_margin_w: float = Field(200, ge=0)
     peak_shaving: bool = True
     target_soc_weight: float = Field(0.005, ge=0)
     target_soc_weight_above: float = Field(0.001, ge=0)
