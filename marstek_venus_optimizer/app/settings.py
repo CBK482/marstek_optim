@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,6 +53,12 @@ class EntityConfig(BaseModel):
     p1_month_peak: str = f"sensor.{DEFAULT_P1}_peak_demand_current_month"
     price: str = "sensor.nord_pool_be_current_price"
     presence: str = "input_select.presence"
+
+    @model_validator(mode="after")
+    def _default_battery_power(self) -> "EntityConfig":
+        if not self.battery_power and self.battery_device:
+            self.battery_power = f"sensor.{self.battery_device}_combined_power"
+        return self
 
 
 class BatteryConfig(BaseModel):

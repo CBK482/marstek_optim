@@ -114,6 +114,13 @@ async function refreshStatus() {
     if (cmd.throttled) {
       document.getElementById('kpi-power').textContent = `Throttled: ${eff.power_w || 0} W`;
       document.getElementById('kpi-power').style.color = '#f59e0b';
+    } else if (eff.kind === 'discharge_auto') {
+      const p = live.batt_power != null ? Math.round(Math.abs(live.batt_power)) : (live.batt_charge_w != null ? Math.round(Math.abs(live.batt_charge_w)) : null);
+      document.getElementById('kpi-power').textContent = p != null ? `Live: ${p} W (Dynamic CT)` : 'Dynamic CT follow';
+      document.getElementById('kpi-power').style.color = '#38bdf8';
+    } else if (eff.kind === 'charge' && live.batt_power != null) {
+      document.getElementById('kpi-power').textContent = `Set: ${eff.power_w || 0} W (Live: ${Math.round(Math.abs(live.batt_power))} W)`;
+      document.getElementById('kpi-power').style.color = 'var(--text-muted)';
     } else {
       document.getElementById('kpi-power').textContent = `Power: ${eff.power_w || 0} W`;
       document.getElementById('kpi-power').style.color = 'var(--text-muted)';
@@ -129,7 +136,8 @@ async function refreshStatus() {
       document.getElementById('kpi-p1').textContent = Math.round(live.p1_w);
       const avg = live.avg_demand_w != null ? Math.round(live.avg_demand_w) : '--';
       const target = live.peak_target_w != null ? Math.round(live.peak_target_w) : '--';
-      document.getElementById('kpi-avg-demand').textContent = `15m Avg: ${avg} W (Target: ${target} W)`;
+      const house = live.house_w != null ? ` · House: ${Math.round(live.house_w)} W` : '';
+      document.getElementById('kpi-avg-demand').textContent = `15m Avg: ${avg} W (Target: ${target} W)${house}`;
     }
 
     const planSummary = data.plan || {};

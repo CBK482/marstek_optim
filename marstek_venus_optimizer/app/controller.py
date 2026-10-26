@@ -198,6 +198,7 @@ class Controller:
             "avg_demand_w": avg,
             "own_avg_w": own_avg,
             "batt_charge_w": batt_ch,
+            "batt_power": batt_raw,
             "house_w": house,
             "presence": presence_raw,
             "is_away": is_away,
