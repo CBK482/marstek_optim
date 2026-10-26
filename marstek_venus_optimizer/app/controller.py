@@ -148,7 +148,12 @@ class Controller:
         else:
             batt_ch = None  # Auto/CT: unknown without a power sensor
         # House load: grid import P1 = house + batt_charge => house = P1 - batt_charge
-        house = max(0.0, p1 - batt_ch) if (p1 is not None and batt_ch is not None) else (max(0.0, p1) if p1 is not None else None)
+        if p1 is not None and batt_ch is not None:
+            house = max(0.0, p1 - batt_ch)
+        elif p1 is not None and mode_state not in (self.cfg.battery.mode_option_auto, "Automatic", "Auto"):
+            house = max(0.0, p1)
+        else:
+            house = None  # In Automatic mode without batt sensor, P1 is suppressed (~0W) and does not reflect house load
 
         # own running quarter-hour average of grid import
         q = price_mod.floor_slot(now)

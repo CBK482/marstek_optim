@@ -30,12 +30,24 @@ async def test_discovery_finds_defaults():
     s = d["suggestion"]
     assert s["battery_device"] == B
     assert s["soc"] == f"sensor.{B}_battery_state_of_charge"
+    assert s["battery_power"] == f"sensor.{B}_combined_power"
     assert s["tp0_power"] == f"number.{B}_time_period_0_power"
     assert s["p1_power"] == "sensor.p1_meter_5c2faf013360_power"
     assert s["p1_avg_demand"] == "sensor.p1_meter_5c2faf013360_average_demand"
     assert s["price"] == "sensor.nord_pool_be_current_price"
     assert s["presence"] == "input_select.presence"
     assert d["batteries"][0]["complete"]
+
+
+@pytest.mark.asyncio
+async def test_automatic_mode_combined_power_preserves_house_load(ctl):
+    # Simulate Automatic mode with battery discharging 350 W to cover 370 W house load (P1 = 20 W)
+    ctl.cfg.entities.battery_power = f"sensor.{B}_combined_power"
+    ctl.ha.values[f"select.{B}_working_mode"] = "Automatic"
+    await ctl.refresh_live()
+    # house = P1 - batt_charge = simulated house load
+    assert ctl.live["house_w"] == pytest.approx(ctl.ha.load, abs=1.0)
+    assert ctl.live["batt_charge_w"] == pytest.approx(-ctl.ha.batt_power, abs=1.0)
 
 
 
@@ -250,8 +262,8 @@ async def test_presence_away_switches_to_away_load_profile(ctl):
 
     res = await ctl.run_optimization()
     assert res.ok
-    # Slots should have load ~120 W (within blending range of first hour or two)
-    for s in res.slots[16:]:  # after initial blending
+    # Slots should have load ~120 W (after exponential decay of initial ~hour persistence)
+    for s in res.slots[18:]:
         assert s.load_w == pytest.approx(120.0, abs=1.0)
 
 

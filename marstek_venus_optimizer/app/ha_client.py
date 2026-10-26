@@ -243,6 +243,7 @@ class MockHA:
             self._st(f"sensor.{b}_battery_state_of_charge", round(self.soc, 1), "Venus Battery SoC", "%", device_class="battery"),
             self._st(f"sensor.{b}_battery_capacity_wh", round(self.soc / 100 * self.capacity_wh), "Venus Battery Capacity", "Wh"),
             self._st(f"sensor.{b}_ac_power", round(self.batt_power), "Venus AC Power", "W", device_class="power"),
+            self._st(f"sensor.{b}_combined_power", round(self.batt_power), "Venus Combined Power", "W", device_class="power"),
             self._st(f"select.{b}_working_mode", self.values[f"select.{b}_working_mode"], "Venus Working Mode",
                      options=["Automatic", "Manual", "Trading", "AI"]),
             self._st(f"switch.{b}_time_period_0_enabled", self.values[f"switch.{b}_time_period_0_enabled"], "Venus Time Period 0 Enabled"),

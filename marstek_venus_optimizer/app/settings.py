@@ -42,7 +42,7 @@ class EntityConfig(BaseModel):
     battery_device: str = DEFAULT_BATTERY
     soc: str = f"sensor.{DEFAULT_BATTERY}_battery_state_of_charge"
     capacity_wh: str = f"sensor.{DEFAULT_BATTERY}_battery_capacity_wh"
-    battery_power: str = ""
+    battery_power: str = f"sensor.{DEFAULT_BATTERY}_combined_power"
     working_mode: str = f"select.{DEFAULT_BATTERY}_working_mode"
     tp0_enabled: str = f"switch.{DEFAULT_BATTERY}_time_period_0_enabled"
     tp0_power: str = f"number.{DEFAULT_BATTERY}_time_period_0_power"

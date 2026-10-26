@@ -8,7 +8,7 @@ from typing import Any
 BATTERY_ROLES: dict[str, tuple[str, str]] = {
     "soc": ("sensor", r"battery_state_of_charge|battery_soc|state_of_charge"),
     "capacity_wh": ("sensor", r"battery_capacity_wh|battery_remaining_capacity|battery_capacity"),
-    "battery_power": ("sensor", r"ac_power|battery_power|power"),
+    "battery_power": ("sensor", r"combined_power|ac_power|battery_power|power"),
     "working_mode": ("select", r"working_mode|user_work_mode"),
     "tp0_enabled": ("switch", r"time_period_0_enabled"),
     "tp0_power": ("number", r"time_period_0_power"),
