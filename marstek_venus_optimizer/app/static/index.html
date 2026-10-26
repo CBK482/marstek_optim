@@ -147,6 +147,13 @@
             </div>
 
             <div class="field-row">
+              <label for="cfg-batt-power">Battery Power Sensor (Combined Power)</label>
+              <input type="text" id="cfg-batt-power" name="entities.battery_power" placeholder="sensor.hame_energy_hmg_50_009b08782bb2_combined_power">
+              <div class="field-preview" id="prev-batt-power">Live: --</div>
+              <div class="field-help">Real-time AC power sensor. Essential for Automatic / Auto CT mode to prevent measured house load from collapsing to 0 W.</div>
+            </div>
+
+            <div class="field-row">
               <label for="cfg-mode">Working Mode Select Entity</label>
               <input type="text" id="cfg-mode" name="entities.working_mode">
               <div class="field-preview" id="prev-mode">Live: --</div>

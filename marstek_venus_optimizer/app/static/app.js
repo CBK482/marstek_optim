@@ -397,7 +397,7 @@ document.getElementById('btn-discover').addEventListener('click', async () => {
 
 async function updateEntityPreviews(entities) {
   const ids = [
-    entities.soc, entities.working_mode,
+    entities.soc, entities.battery_power, entities.working_mode,
     entities.p1_power, entities.p1_avg_demand, entities.price, entities.presence
   ].filter(Boolean).join(',');
 
@@ -419,6 +419,7 @@ async function updateEntityPreviews(entities) {
     };
 
     setPrev(entities.soc, 'prev-soc');
+    setPrev(entities.battery_power, 'prev-batt-power');
     setPrev(entities.working_mode, 'prev-mode');
     setPrev(entities.p1_power, 'prev-p1-power');
     setPrev(entities.p1_avg_demand, 'prev-p1-avg');
