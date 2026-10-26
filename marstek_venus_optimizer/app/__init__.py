@@ -1,3 +1,3 @@
 """Marstek Venus Battery Optimizer – Home Assistant add-on."""
-__version__ = "1.0.14"
+__version__ = "1.0.15"
 

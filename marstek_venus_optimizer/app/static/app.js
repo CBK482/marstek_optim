@@ -434,9 +434,33 @@ async function updateEntityPreviews(entities) {
     setPrev(entities.price, 'prev-price');
     setPrev(entities.presence, 'prev-presence');
   } catch (err) {
-
     console.error('Preview error', err);
   }
+}
+
+function getFormEntities() {
+  const form = document.getElementById('config-form');
+  const entities = {};
+  if (!form) return entities;
+  for (const el of form.elements) {
+    if (el.name && el.name.startsWith('entities.')) {
+      entities[el.name.split('.')[1]] = el.value.trim();
+    }
+  }
+  return entities;
+}
+
+let previewDebounce = null;
+const cfgForm = document.getElementById('config-form');
+if (cfgForm) {
+  cfgForm.addEventListener('input', (e) => {
+    if (e.target.name && e.target.name.startsWith('entities.')) {
+      clearTimeout(previewDebounce);
+      previewDebounce = setTimeout(() => {
+        updateEntityPreviews(getFormEntities());
+      }, 350);
+    }
+  });
 }
 
 // Logs tab
